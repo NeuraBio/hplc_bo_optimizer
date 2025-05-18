@@ -1,0 +1,50 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Poetry
+poetry.lock
+
+# Virtualenv
+.venv/
+
+# Jupyter Notebooks
+*.ipynb
+.ipynb_checkpoints/
+
+# VSCode / JetBrains / IDE configs
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+
+# Environment files
+.env
+.env.*
+
+# Docker artifacts
+*.log
+docker-compose.override.yml
+
+# Output files
+hplc_results.csv
+hplc_convergence.png
+results.csv
+
+# SQLite DB
+hplc_study.db
+
+# Pre-commit cache
+.pre-commit-config.yaml~
+.pre-commit-hooks.yaml~
+.pre-commit/
+
+# Misc
+*.bak
+*.tmp
+
