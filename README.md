@@ -1,3 +1,8 @@
+Here are your finalized files:
+
+---
+
+## ✅ Updated `README.md`
 
 ````markdown
 # 🧪 HPLC Bayesian Optimization Toolkit
@@ -62,12 +67,14 @@ score = (
 * ✅ Simulated scoring (`--mock`)
 * ✅ Persistent study state with SQLite
 * ✅ Trial history export to CSV + plot
+* ✅ Per-study concurrency control via file-based locks
+* ✅ Study registry logging (user, timestamp, trials, mode)
 * ⏳ Streamlit UI (coming soon)
 * 🧪 Real chromatogram-based scoring (planned)
 
 ---
 
-#### 🔁 Project Stages
+## 🔁 Project Stages
 
 | Stage       | Goal                                                                                               | Status    |
 | ----------- | -------------------------------------------------------------------------------------------------- | --------- |
@@ -78,7 +85,6 @@ score = (
 | **Stage 5** | Extend to richer acquisition/BO strategies and support more method types.                          | 🔮 Future |
 
 ---
-
 
 ## 🚀 Quickstart (with Docker)
 
@@ -92,7 +98,7 @@ make docker-up
 ### Step 2: Run CLI loop
 
 ```bash
-make run-interactive
+make run-interactive CLIENT=Pfizer EXPERIMENT=ImpurityTest
 ```
 
 You’ll be shown HPLC parameters. Run the method in-lab and enter a numeric score when prompted.
@@ -100,15 +106,13 @@ You’ll be shown HPLC parameters. Run the method in-lab and enter a numeric sco
 ### Step 3: Export results
 
 ```bash
-make export-results
+make export-results CLIENT=Pfizer EXPERIMENT=ImpurityTest
 ```
-
-Generates `hplc_results.csv` and `hplc_convergence.png`.
 
 ### For simulation:
 
 ```bash
-make run-mock
+make run-mock CLIENT=Pfizer EXPERIMENT=ImpurityTest
 ```
 
 ---
@@ -119,6 +123,7 @@ make run-mock
 * **Poetry**: Dependency + environment management
 * **Docker**: Reproducible setup
 * **Matplotlib**: Score visualization
+* **FileLock**: Per-study mutex to prevent concurrent access
 * **Streamlit**: Visual chemist UI (coming soon)
 
 ---
@@ -131,8 +136,33 @@ hplc_bo/
 ├── optimizer.py        # Suggestion + BO loop
 ├── scoring.py          # Score calculation
 ├── config.py           # Search space
+├── lock_manager.py     # File-based mutex for each study
+├── study_registry.py   # CSV registry logger for all runs
 ├── param_types.py      # Strong param typing
 Makefile                # Dev & Docker commands
+```
+
+---
+
+## 🗂️ Study Tracking & Locking
+
+Each study is uniquely identified by a combination of:
+
+* `client_lab` (e.g., `"Pfizer"`)
+* `experiment` (e.g., `"Impurity Test"`)
+
+This becomes the internal `study_name` (`"pfizer_impurity_test"`), which is used:
+
+* For SQLite-backed Optuna storage
+* For locking (`optuna_storage/locks/`)
+* In the registry (`optuna_storage/study_registry.csv`)
+
+### 🔒 Concurrency Control
+
+Only one user/process can interactively score a given study at a time:
+
+```bash
+[ERROR] Study 'pfizer_impurity_test' is locked by alice (PID 1234).
 ```
 
 ---
@@ -158,9 +188,10 @@ You can interact via CLI or, soon, a browser-based UI:
 ## 🧠 For Developers
 
 * CLI interface via `run_trial.py`
-* Optuna-based stateful study in `hplc_study.db`
-* Mock scoring in `scoring.py` (replaceable with real logic)
-* Contributions welcome!
+* Optuna-based study tracking
+* Trial-level locking
+* Study logging via CSV
+* Easy to extend for UI or REST APIs
 
 📘 See [CONTRIBUTE.md](CONTRIBUTE.md) for full developer setup and debugging workflow.
 
@@ -171,6 +202,7 @@ You can interact via CLI or, soon, a browser-based UI:
 * [x] CLI with chemist input loop
 * [x] Mocked optimization + scoring
 * [x] Export results as CSV/plot
+* [x] Study registry and lock protection
 * [ ] Streamlit chemist UI
 * [ ] Real data scoring from instrument output
 * [ ] Auto-parsing chromatograms / peak table
@@ -182,9 +214,103 @@ You can interact via CLI or, soon, a browser-based UI:
 
 MIT License
 
+````
+
+---
+
+## ✅ `CONTRIBUTE.md`
+
+```markdown
+# 🧠 Contributing to HPLC BO Toolkit
+
+We welcome developers, chemists, and data scientists to help evolve this platform.
+
+---
+
+## 🧰 Local Development Setup
+
+### Poetry-based setup
+
+```bash
+poetry install --with dev
+````
+
+### Docker-based (recommended)
+
+```bash
+make docker-build
+make docker-up
+make docker-shell
 ```
 
 ---
 
-Would you like me to now update and format the **`CONTRIBUTE.md`** accordingly — scoped to this scientific + engineering framing?
+## 🧪 Developer Commands
+
+```bash
+make format       # Run black, isort, and ruff formatter
+make lint         # Run ruff checks
+make run-mock CLIENT=Pfizer EXPERIMENT=Test
+make run-interactive CLIENT=Amgen EXPERIMENT=StabilityStudy
+make export-results CLIENT=LabX EXPERIMENT=Batch42
+```
+
+All runs are scoped to a client + experiment, logged in the study registry.
+
+---
+
+## 🧭 Debugging Tips
+
+### VS Code / PyCharm
+
+* Mark `hplc_bo/` as source root
+* Use Poetry interpreter or Docker container
+* Set breakpoints inside `study_runner.py`, `scoring.py`, etc.
+* Run/debug `run_trial.py` with CLI args like:
+
+```bash
+--client_lab Pfizer --experiment ImpurityTest --interactive
+```
+
+---
+
+## 🔐 Locking & Concurrency
+
+* Each study is guarded with a file lock (`optuna_storage/locks/`)
+* Only one user/process can run a study interactively at once
+* Lock metadata is tracked (`lockmeta.json`)
+
+---
+
+## 📒 Study Registry
+
+All runs are logged to:
+
+```
+optuna_storage/study_registry.csv
+```
+
+| Column       | Meaning                      |
+| ------------ | ---------------------------- |
+| `timestamp`  | Time the run was executed    |
+| `client`     | Lab name                     |
+| `experiment` | Study description            |
+| `study_name` | Normalized internal name     |
+| `trials`     | Number of trials in this run |
+| `status`     | Usually "completed"          |
+| `run_mode`   | `"mock"` or `"interactive"`  |
+| `user`       | Who triggered the run        |
+
+---
+
+## 🧪 Testing
+
+Planned: `pytest`-based test suite, type-checking, and CI integration
+
+---
+
+## 📫 Questions?
+
+Please open an issue or submit a PR with your ideas!
+
 ```

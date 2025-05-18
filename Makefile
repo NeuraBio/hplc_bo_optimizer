@@ -1,5 +1,9 @@
 # Makefile for HPLC BO Optimizer
 
+# Configurable variables (can override via CLI)
+CLIENT ?= Pfizer
+EXPERIMENT ?= ImpurityTest
+
 # Docker commands
 DOCKER_COMPOSE = docker compose
 DOCKER_SERVICE = hplc-dev
@@ -33,19 +37,16 @@ format:
 lint:
 	poetry run ruff check .
 
-# --- Docker-Based Targets ---
-
-init-study:
-	$(POETRY_RUN) python hplc_bo/run_trial.py --init
-
-run-mock:
-	$(POETRY_RUN) python hplc_bo/run_trial.py --mock 10
+# --- Docker-Based CLI Commands with Configurable Inputs ---
 
 run-interactive:
-	$(POETRY_RUN) python hplc_bo/run_trial.py --interactive
+	$(POETRY_RUN) python hplc_bo/run_trial.py --client_lab $(CLIENT) --experiment $(EXPERIMENT) --interactive
+
+run-mock:
+	$(POETRY_RUN) python hplc_bo/run_trial.py --client_lab $(CLIENT) --experiment $(EXPERIMENT) --mock 10
 
 export-results:
-	$(POETRY_RUN) python hplc_bo/run_trial.py --export
+	$(POETRY_RUN) python hplc_bo/run_trial.py --client_lab $(CLIENT) --experiment $(EXPERIMENT) --export
 
 docker-format:
 	$(POETRY_RUN) black .
@@ -60,4 +61,4 @@ docker-lint:
 clean:
 	rm -f hplc_results.csv hplc_convergence.png
 
-.PHONY: docker-build docker-up docker-down docker-shell install format lint init-study run-mock run-interactive export-results clean docker-format docker-lint
+.PHONY: docker-build docker-up docker-down docker-shell install format lint run-interactive run-mock export-results clean docker-format docker-lint

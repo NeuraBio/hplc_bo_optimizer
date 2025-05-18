@@ -48,3 +48,5 @@ hplc_study.db
 *.bak
 *.tmp
 
+#SQLLite db
+optuna_storage/
