@@ -10,9 +10,10 @@ from typing import TypedDict
 class OptimizationParams(TypedDict):
     """Type definition for optimization parameters."""
 
-    b_start: float
-    b_end: float
-    gradient_time: float
     flow_rate: float
+    pH: float
+    percent_organic: float
+    gradient_slope: float
+    gradient_length: float
     column_temp: float
-    additive: str
+    diluent: str  # categorical (e.g., FB, FC, etc.)

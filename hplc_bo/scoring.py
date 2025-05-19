@@ -1,5 +1,3 @@
-import numpy as np
-
 from .param_types import OptimizationParams
 
 # Define target parameters for optimization
@@ -15,25 +13,27 @@ TARGET: OptimizationParams = {
 
 def mock_score(params: OptimizationParams) -> float:
     """
-    Calculate a mock score for a set of HPLC parameters.
-
-    The score is inversely proportional to the absolute difference
-    between the provided parameters and target parameters, with
-    different weights applied to different parameters.
-
-    Args:
-        params: A dictionary of HPLC optimization parameters
-
-    Returns:
-        A float score value with some random noise added
+    Simulate 4 peaks based on input params and calculate a score:
+    - If any pair of peaks has resolution Rs < 1.5, return -inf
+    - Else, return -rt_response (minimize last peak time)
     """
-    score = (
-        -abs(params["b_start"] - TARGET["b_start"])
-        - abs(params["b_end"] - TARGET["b_end"])
-        - abs(params["gradient_time"] - TARGET["gradient_time"])
-        - abs(params["flow_rate"] - TARGET["flow_rate"]) * 10
-        - abs(params["column_temp"] - TARGET["column_temp"]) / 2
-    )
-    if params["additive"] != TARGET["additive"]:
-        score -= 5
-    return score + np.random.normal(0, 0.5)
+    import random
+
+    # Generate fake RTs based on input with spacing
+    p1 = 4.0 + random.uniform(-0.1, 0.1)
+    p2 = p1 + random.uniform(1.6, 2.0)
+    p3 = p2 + random.uniform(1.6, 2.0)
+    p4 = p3 + random.uniform(1.6, 2.0)
+    rt_list = [p1, p2, p3, p4]
+    rt_response = p4  # last peak's RT
+
+    # Resolution calculation
+    MIN_RS = 1.5
+    EST_PEAK_WIDTH = 0.2
+    for i in range(len(rt_list) - 1):
+        delta = rt_list[i + 1] - rt_list[i]
+        rs = 1.18 * delta / (2 * EST_PEAK_WIDTH)
+        if rs < MIN_RS:
+            return float("-inf")
+
+    return -rt_response

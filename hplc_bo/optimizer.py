@@ -1,18 +1,25 @@
 import optuna
 
-from .config import SEARCH_SPACE
+from .config import CATEGORICAL_SPACE, CONTINUOUS_SPACE
 from .param_types import OptimizationParams
 from .scoring import mock_score
 
 
 def suggest_params(trial: optuna.Trial) -> OptimizationParams:
     return {
-        "b_start": trial.suggest_float("b_start", *SEARCH_SPACE["b_start"]),
-        "b_end": trial.suggest_float("b_end", *SEARCH_SPACE["b_end"]),
-        "gradient_time": trial.suggest_float("gradient_time", *SEARCH_SPACE["gradient_time"]),
-        "flow_rate": trial.suggest_float("flow_rate", *SEARCH_SPACE["flow_rate"]),
-        "column_temp": trial.suggest_float("column_temp", *SEARCH_SPACE["column_temp"]),
-        "additive": trial.suggest_categorical("additive", SEARCH_SPACE["additive"]),
+        "flow_rate": trial.suggest_float("flow_rate", *CONTINUOUS_SPACE["flow_rate"]),
+        "pH": trial.suggest_float("pH", *CONTINUOUS_SPACE["pH"]),
+        "percent_organic": trial.suggest_float(
+            "percent_organic", *CONTINUOUS_SPACE["percent_organic"]
+        ),
+        "gradient_slope": trial.suggest_float(
+            "gradient_slope", *CONTINUOUS_SPACE["gradient_slope"]
+        ),
+        "gradient_length": trial.suggest_float(
+            "gradient_length", *CONTINUOUS_SPACE["gradient_length"]
+        ),
+        "column_temp": trial.suggest_float("column_temp", *CONTINUOUS_SPACE["column_temp"]),
+        "diluent": trial.suggest_categorical("diluent", CATEGORICAL_SPACE["diluent"]),
     }
 
 

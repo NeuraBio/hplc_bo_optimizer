@@ -5,7 +5,7 @@ This package provides tools for optimizing HPLC parameters
 using Bayesian optimization techniques.
 """
 
-from .config import SEARCH_SPACE
+from .config import CATEGORICAL_SPACE, CONTINUOUS_SPACE
 from .optimizer import run_optimization, suggest_params
 from .param_types import OptimizationParams
 from .scoring import TARGET, mock_score
@@ -16,5 +16,6 @@ __all__ = [
     "suggest_params",
     "mock_score",
     "TARGET",
-    "SEARCH_SPACE",
+    "CONTINUOUS_SPACE",
+    "CATEGORICAL_SPACE",
 ]
