@@ -3,6 +3,9 @@
 # Configurable variables (can override via CLI)
 CLIENT ?= Pfizer
 EXPERIMENT ?= ImpurityTest
+TRIAL_ID ?= 0
+RT_FILE ?= results/rt.csv
+GRADIENT_FILE ?=
 
 # Docker commands
 DOCKER_COMPOSE = docker compose
@@ -39,26 +42,21 @@ lint:
 
 # --- Docker-Based CLI Commands with Configurable Inputs ---
 
-run-interactive:
-	$(POETRY_RUN) python hplc_bo/run_trial.py --client_lab $(CLIENT) --experiment $(EXPERIMENT) --interactive
+suggest:
+	$(POETRY_RUN) python hplc_bo/run_trial.py --client_lab $(CLIENT) --experiment $(EXPERIMENT) suggest
 
-run-mock:
-	$(POETRY_RUN) python hplc_bo/run_trial.py --client_lab $(CLIENT) --experiment $(EXPERIMENT) --mock 10
+report:
+	$(POETRY_RUN) python hplc_bo/run_trial.py --client_lab $(CLIENT) --experiment $(EXPERIMENT) report --trial_id $(TRIAL_ID) --rt_file $(RT_FILE) $(if $(GRADIENT_FILE),--gradient_file $(GRADIENT_FILE))
 
 export-results:
-	$(POETRY_RUN) python hplc_bo/run_trial.py --client_lab $(CLIENT) --experiment $(EXPERIMENT) --export
+	$(POETRY_RUN) python hplc_bo/run_trial.py --client_lab $(CLIENT) --experiment $(EXPERIMENT) export
 
-docker-format:
-	$(POETRY_RUN) black .
-	$(POETRY_RUN) isort .
-	$(POETRY_RUN) ruff format .
-
-docker-lint:
-	$(POETRY_RUN) ruff check .
+run-historical:
+	$(POETRY_RUN) python hplc_bo/run_trial.py --client_lab $(CLIENT) --experiment $(EXPERIMENT) run_historical --csv historical_data.csv
 
 # --- Clean ---
 
 clean:
 	rm -f hplc_results.csv hplc_convergence.png
 
-.PHONY: docker-build docker-up docker-down docker-shell install format lint run-interactive run-mock export-results clean docker-format docker-lint
+.PHONY: docker-build docker-up docker-down docker-shell install format lint suggest report export-results run-historical clean
