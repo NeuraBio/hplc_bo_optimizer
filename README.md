@@ -102,6 +102,9 @@ make docker-setup-env
 
 # 4. Configure Git for the mounted repository (one-time setup)
 docker compose exec hplc-dev git config --global --add safe.directory /app
+
+# 5. Install Git hooks to run pre-commit in Docker
+./scripts/install-git-hooks.sh
 ```
 
 ### Daily Development Workflow

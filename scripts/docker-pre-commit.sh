@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Run pre-commit (and other poetry/formatting) in the dev container
-CONTAINER_NAME=hplc-bo-pycharm  # matches docker-compose.yaml
+CONTAINER_NAME=hplc-bo-dev  # matches docker-compose.yml
 
 # Detect if the container is running
 if ! docker ps | grep -q $CONTAINER_NAME; then
@@ -10,5 +10,6 @@ if ! docker ps | grep -q $CONTAINER_NAME; then
 fi
 
 # Pass through all arguments to poetry run pre-commit in Docker
-docker exec -u $(id -u):$(id -g) -e HOME=/app $CONTAINER_NAME poetry run pre-commit "$@"
+# Run as appuser (the container's user) to avoid permission issues
+docker exec $CONTAINER_NAME poetry run pre-commit "$@"
 
