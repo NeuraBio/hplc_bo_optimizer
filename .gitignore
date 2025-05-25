@@ -55,5 +55,8 @@ results/
 *.so
 *.pyo
 
-#local share
+# Local user files
 .local/
+.cache/
+.bash_history
+poetry.toml
