@@ -51,3 +51,8 @@ hplc_study.db
 #SQLLite db
 optuna_storage/
 results/
+
+*.pyc
+*.so
+*.pyo
+

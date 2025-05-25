@@ -1,15 +1,31 @@
 repos:
-  - repo: https://github.com/psf/black
-    rev: 24.3.0
+  - repo: local
     hooks:
       - id: black
+        name: black
+        entry: poetry run black
+        language: system
+        types: [python]
+        # Black should pick up its configuration from pyproject.toml
 
-  - repo: https://github.com/pre-commit/mirrors-isort
-    rev: v5.10.1
-    hooks:
       - id: isort
+        name: isort
+        entry: poetry run isort
+        language: system
+        types: [python]
+        # isort should pick up its configuration from pyproject.toml
 
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.3.4
-    hooks:
-      - id: ruff
+      - id: ruff-format
+        name: ruff-format
+        entry: poetry run ruff format
+        language: system
+        types: [python]
+        # ruff format should pick up its configuration from pyproject.toml
+
+      - id: ruff-lint
+        name: ruff-lint
+        # Using --fix so it attempts to auto-correct lint issues during pre-commit
+        entry: poetry run ruff check --fix
+        language: system
+        types: [python]
+        # ruff lint should pick up its configuration from pyproject.toml

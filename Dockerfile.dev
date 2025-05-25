@@ -1,13 +1,39 @@
 FROM python:3.11-slim
 
+# Install system build deps (required for cryptography, pdfminer.six, etc)
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libffi-dev \
+    python3-dev \
+    libssl-dev \
+    pkg-config \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Rust (for cryptography >= 42)
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:$PATH
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
+
+# Install poetry
 RUN pip install poetry
 
 WORKDIR /app
+
+# Only copy pyproject.toml and poetry.lock first for caching
+COPY pyproject.toml poetry.lock* /app/
+
+# Force poetry to build cryptography from source
+ENV PIP_NO_BINARY=cryptography
+ENV CRYPTOGRAPHY_DONT_BUILD_RUST=0
+
+RUN poetry install --with dev --no-root
+
+# Copy in the rest of the code
 COPY . /app
 
-RUN poetry install
+ENV PYTHONPATH=/app
 
-# Default: stay in interactive shell
-#CMD ["/bin/bash"]
 CMD ["sleep", "infinity"]
-

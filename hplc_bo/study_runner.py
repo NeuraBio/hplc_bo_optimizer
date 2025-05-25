@@ -4,10 +4,11 @@ import matplotlib.pyplot as plt
 import optuna
 import pandas as pd
 
+from hplc_bo.convergence import plot_convergence
 from hplc_bo.gradient_utils import (
     TrialRecord,
-    compute_total_score,
-    load_rt_list_from_csv,
+    compute_score_usp,
+    load_peak_data_from_csv,
     penalize_gradient_zigzags,
 )
 from hplc_bo.lock_manager import LockManager
@@ -45,30 +46,81 @@ class StudyRunner:
         penalty = penalize_gradient_zigzags(record.bo_gradient)
 
         if penalty > 50.0:
-            print(f"⚠️ High zigzag penalty ({penalty:.1f}).")
-            confirm = input("Auto-log this trial with -inf score and skip? [y/N]: ")
-            if confirm.strip().lower() == "y":
-                record.score = float("-inf")
-                self.access.tell(record, extra_attrs={"reason": "zigzag"})
-                print("Trial logged as bad (-inf) and skipped.")
-                return
-        print(f"🧪 Suggested Trial #{record.trial_number}")
-        print(json.dumps(record.params, indent=2))
+            print(f"⚠️ Warning: This gradient has zigzags (penalty score: {penalty:.1f}).")
+            print(f"🧪 Suggested Trial #{record.trial_number}")
+            print(json.dumps(record.params, indent=2))
+
+            choice = input(
+                "Do you want to: [1] Continue with this gradient, [2] Mark as invalid and skip? (1/2): "
+            )
+            if choice.strip() == "2":
+                self.mark_invalid(record.trial_number, reason="gradient_zigzag")
+                print("Trial marked as invalid. Suggesting a new trial...")
+                # Recursively call suggest to get a new trial
+                return self.suggest()
+        else:
+            print(f"🧪 Suggested Trial #{record.trial_number}")
+            print(json.dumps(record.params, indent=2))
+
         log_study_run(self.client_lab, self.experiment, self.study_name, 1, "suggest")
+        return record
 
     def report_result(self, trial_id: int, rt_csv_path: str):
-        record = TrialRecord.load(self.study_name, trial_id)
-        gradient = record.bo_gradient
-        rt_list = load_rt_list_from_csv(rt_csv_path)
-        score = compute_total_score(rt_list, gradient)
+        try:
+            # Load all necessary data from the CSV
+            rt_list, peak_widths, tailing_factors = load_peak_data_from_csv(rt_csv_path)
+
+            # Calculate score using the new USP-based function
+            # We can use default target_run_time and min_resolution from compute_score_usp
+            # or pass them as arguments if they need to be configurable per study/run.
+            score = compute_score_usp(rt_list, peak_widths, tailing_factors)
+
+        except FileNotFoundError:
+            print(
+                f"❌ Error: Chromatogram CSV file not found at {rt_csv_path} for trial {trial_id}."
+            )
+            # Assign a very bad score or mark as invalid
+            score = -1e10  # Or consider calling self.mark_invalid(trial_id, reason="csv_not_found")
+            rt_list = []  # Ensure rt_list is defined for the record
+        except (KeyError, ValueError) as e:
+            print(
+                f"❌ Error: Failed to parse CSV or invalid data for trial {trial_id} from {rt_csv_path}. Details: {e}"
+            )
+            # Assign a very bad score
+            score = (
+                -1e10
+            )  # Or consider calling self.mark_invalid(trial_id, reason="csv_parsing_error")
+            rt_list = []  # Ensure rt_list is defined for the record
+        except Exception as e:  # Catch any other unexpected errors during scoring
+            print(
+                f"❌ Error: An unexpected error occurred during scoring for trial {trial_id}. Details: {e}"
+            )
+            score = -1e10
+            rt_list = []
 
         record = TrialRecord.load(self.study_name, trial_id)
         record.score = score
-        record.rt_list = rt_list
+        record.rt_list = rt_list  # rt_list is already part of TrialRecord
+        # If we decided to store peak_widths and tailing_factors in TrialRecord,
+        # we would set them here:
+        # record.peak_widths = peak_widths
+        # record.tailing_factors = tailing_factors
+
         self.access.tell(record)
 
-        print(f"✓ Trial {trial_id} updated with score {score:.2f}")
+        if score > -1e9:  # Check if it wasn't an error score
+            print(f"✓ Trial {trial_id} updated with score {score:.4f}")
+        else:
+            print(f"✓ Trial {trial_id} processed with an error score {score:.4f}")
+
         log_study_run(self.client_lab, self.experiment, self.study_name, 1, "report")
+
+    def mark_invalid(self, trial_id: int, reason: str = "user_rejected"):
+        record = TrialRecord.load(self.study_name, trial_id)
+        record.score = float("-inf")
+        self.access.tell(record, extra_attrs={"reason": reason})
+        print(f"✓ Trial {trial_id} marked as invalid and scored as -inf")
+        log_study_run(self.client_lab, self.experiment, self.study_name, 1, "invalidate")
 
     def export_results(self, output_csv="hplc_results.csv", plot_path="hplc_convergence.png"):
         records = []
@@ -82,11 +134,4 @@ class StudyRunner:
         df.to_csv(output_csv, index=False)
         print(f"[✓] Exported {output_csv}")
 
-        if not df.empty:
-            plt.plot(df["trial_number"], df["score"], marker="o")
-            plt.xlabel("Trial")
-            plt.ylabel("Score")
-            plt.title("Optimization Progress")
-            plt.grid(True)
-            plt.savefig(plot_path)
-            print(f"[✓] Saved {plot_path}")
+        plot_convergence(self.study_name, plot_path)
