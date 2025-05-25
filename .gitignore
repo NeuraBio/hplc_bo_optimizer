@@ -7,7 +7,6 @@ __pycache__/
 *.so
 
 # Poetry
-poetry.lock
 
 # Virtualenv
 .venv/
@@ -56,3 +55,5 @@ results/
 *.so
 *.pyo
 
+#local share
+.local/

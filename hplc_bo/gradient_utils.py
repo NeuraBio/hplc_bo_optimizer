@@ -147,7 +147,7 @@ def load_peak_data_from_csv(file_path: str) -> Tuple[List[float], List[float], L
     try:
         df = pd.read_csv(file_path)
     except Exception as e:
-        raise ValueError(f"Error reading CSV file {file_path}: {e}")
+        raise ValueError(f"Error reading CSV file {file_path}: {e}") from e
 
     # --- ASSUMED COLUMN NAMES ---
     # These may need to be adjusted based on the actual export from Empower

@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-from hplc_bo.pdf_parser import EXPECTED_RT_TABLE_HEADERS, extract_rt_table_data
+from hplc_bo.pdf_parser import extract_rt_table_data
 
 # Define the project root if your test data is relative to it
 # For now, using the absolute path provided by the user
@@ -26,7 +26,7 @@ def test_extract_rt_table_from_ai_4_2603(sample_pdf_path):
 
     print("\n--- Sample Extracted RT Table Data (first 2 rows) ---")
     for i, row in enumerate(rt_data[:2]):
-        print(f"Row {i+1}: {row}")
+        print(f"Row {i + 1}: {row}")
     print("-----------------------------------------------------")
 
     # Check if all expected headers are present in the first row's keys

@@ -82,6 +82,56 @@ make export-results CLIENT=Pfizer EXPERIMENT=DegradantA
 
 ---
 
+## 🐳 Development Environment Setup
+
+This project uses Docker and Poetry for a reproducible development environment. Follow these steps to set up your development environment:
+
+### Initial Setup
+
+```bash
+# 1. Build the Docker image
+make docker-build
+# or: docker compose build hplc-dev
+
+# 2. Start the container
+make docker-up
+# or: docker compose up -d hplc-dev
+
+# 3. Install dependencies (with special handling for cryptography)
+make docker-setup-env
+
+# 4. Configure Git for the mounted repository (one-time setup)
+docker compose exec hplc-dev git config --global --add safe.directory /app
+```
+
+### Daily Development Workflow
+
+```bash
+# Start the container if not running
+make docker-up
+
+# Get a shell inside the container
+make docker-shell
+
+# Run tests
+make test
+
+# Run linting and formatting
+make pre-commit
+make format
+```
+
+### Troubleshooting
+
+If you encounter issues with dependencies, especially native ones like `cryptography`:
+
+```bash
+# Manually reinstall problematic packages
+docker compose exec hplc-dev bash -c "PIP_NO_BINARY=cryptography CRYPTOGRAPHY_DONT_BUILD_RUST=0 poetry add cryptography==42.0.8 pdfplumber==0.11.6"
+```
+
+---
+
 ## 📊 Architecture Overview
 
 ```

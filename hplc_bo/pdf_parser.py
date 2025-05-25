@@ -38,7 +38,6 @@ def extract_rt_table_data(pdf_path: str) -> Optional[List[Dict[str, Any]]]:
         A list of dictionaries, where each dictionary represents a row in the table,
         or None if the table is not found.
     """
-    all_tables_data = []
     try:
         with pdfplumber.open(pdf_path) as pdf:
             for page_num, page in enumerate(pdf.pages):
@@ -68,7 +67,7 @@ def extract_rt_table_data(pdf_path: str) -> Optional[List[Dict[str, Any]]]:
                                 table_data.append(row_dict)
                             else:
                                 print(
-                                    f"Skipping malformed row in RT table on page {page_num+1}, table {table_idx+1}: {row}"
+                                    f"Skipping malformed row in RT table on page {page_num + 1}, table {table_idx + 1}: {row}"
                                 )
                         return table_data  # Assuming only one such table per PDF for now
 

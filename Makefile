@@ -15,6 +15,12 @@ docker-down:
 docker-shell:
 	$(DOCKER_EXEC) bash
 
+docker-setup-env:
+	@echo "Ensuring poetry.lock is up-to-date and installing/syncing dependencies in Docker..."
+	$(DOCKER_EXEC) poetry lock --no-update
+	$(DOCKER_EXEC) bash -c "PIP_NO_BINARY=cryptography CRYPTOGRAPHY_DONT_BUILD_RUST=0 poetry install --with dev --no-root"
+	@echo "Environment setup complete in Docker."
+
 format:
 	@echo "Formatting code inside Docker..."
 	$(POETRY_RUN) black .
@@ -43,4 +49,4 @@ clean:
 	find . -name '*.pyc' -delete
 	find . -type d -name '__pycache__' -exec rm -rf {} +
 
-.PHONY: docker-build docker-up docker-down docker-shell format lint fix-lint pre-commit test clean
+.PHONY: docker-build docker-up docker-down docker-shell docker-setup-env format lint fix-lint pre-commit test clean

@@ -1,6 +1,5 @@
 import json
 
-import matplotlib.pyplot as plt
 import optuna
 import pandas as pd
 

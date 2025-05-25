@@ -1,9 +1,35 @@
-.venv
-__pycache__
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
 *.pyc
 *.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.tox/
+pip-wheel-metadata/
+dist/
+build/
 *.so
-*.egg-info
+.local
+
+# IDE / OS specific
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
 .DS_Store
-build
-dist
+Thumbs.db
+
+# Logs and generated files
+*.log
+*.pot
+*.mo
