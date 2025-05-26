@@ -2,6 +2,12 @@ DOCKER_COMPOSE = docker compose
 DOCKER_SERVICE = hplc-dev
 DOCKER_EXEC = $(DOCKER_COMPOSE) exec $(DOCKER_SERVICE)
 POETRY_RUN = $(DOCKER_EXEC) poetry run
+# Configurable variables (can override via CLI)
+CLIENT ?= Pfizer
+EXPERIMENT ?= ImpurityTest
+TRIAL_ID ?= 0
+RT_FILE ?= results/rt.csv
+GRADIENT_FILE ?=
 
 docker-build:
 	$(DOCKER_COMPOSE) build --no-cache $(DOCKER_SERVICE)
@@ -49,4 +55,13 @@ clean:
 	find . -name '*.pyc' -delete
 	find . -type d -name '__pycache__' -exec rm -rf {} +
 
-.PHONY: docker-build docker-up docker-down docker-shell docker-setup-env format lint fix-lint pre-commit test clean
+suggest:
+	$(POETRY_RUN) python hplc_bo/run_trial.py --client_lab $(CLIENT) --experiment $(EXPERIMENT) suggest
+
+report:
+	$(POETRY_RUN) python hplc_bo/run_trial.py --client_lab $(CLIENT) --experiment $(EXPERIMENT) report --trial_id $(TRIAL_ID) --rt_file $(RT_FILE) $(if $(GRADIENT_FILE),--gradient_file $(GRADIENT_FILE))
+
+export-results:
+	$(POETRY_RUN) python hplc_bo/run_trial.py --client_lab $(CLIENT) --experiment $(EXPERIMENT) export
+
+.PHONY: docker-build docker-up docker-down docker-shell docker-setup-env format lint fix-lint pre-commit test clean suggest report export-results
