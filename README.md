@@ -49,6 +49,64 @@ Gradient is modeled using 5 anchor timepoints with corresponding %B values.
 
 ---
 
+## 🔍 Validation Workflow
+
+The toolkit includes a validation framework to assess the scoring function and Bayesian Optimization approach using historical HPLC data from PDF reports.
+
+### PDF Data Extraction
+
+The system can extract key data from HPLC PDF reports:
+
+- Retention times (RT)
+- Peak widths and tailing factors
+- Column temperature and flow rate
+- Solvent names (A and B)
+- Gradient table data
+
+### Validation Process
+
+The validation workflow has two phases:
+
+#### Phase 1: Scoring Validation
+
+Validates that the scoring function aligns with expert chemist evaluations:
+
+```bash
+# Process a directory of PDF reports
+make validate-score PDF_DIR=path/to/pdfs VALIDATION_OUTPUT=validation_results
+```
+
+This generates:
+- Score distribution analysis
+- Correlation between scores and method parameters
+- Interactive HTML report for browsing results
+
+#### Phase 2: Bayesian Optimization Validation
+
+Assesses how BO would have performed on historical data:
+
+```bash
+# Run BO validation on previously scored PDFs
+make validate-bo VALIDATION_OUTPUT=validation_results BO_OUTPUT=bo_validation
+```
+
+This produces:
+- Convergence analysis (trials needed to reach optimal methods)
+- Parameter importance plots
+- Contour plots showing the optimization landscape
+- Suggestions for next trials
+
+#### Full Validation
+
+Run both phases in sequence:
+
+```bash
+# Run complete validation workflow
+make validate-full PDF_DIR=path/to/pdfs
+```
+
+---
+
 ## 📦 Current Capabilities
 
 * ✅ Bayesian optimization via Optuna

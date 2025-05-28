@@ -12,3 +12,11 @@ services:
       - PYTHONPATH=/app
     command: sleep infinity
     platform: linux/amd64  # Optional: force x86_64 for M1/arm64 hosts
+    deploy:
+      resources:
+        limits:
+          cpus: '10.0'   # Use up to 10 CPU cores (out of 12 available)
+          memory: 16G     # Use up to 16GB of memory
+        reservations:
+          cpus: '6.0'    # Reserve at least 6 CPU cores
+          memory: 8G      # Reserve at least 8GB of memory

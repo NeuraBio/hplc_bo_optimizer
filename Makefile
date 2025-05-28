@@ -64,4 +64,23 @@ report:
 export-results:
 	$(POETRY_RUN) python hplc_bo/run_trial.py --client_lab $(CLIENT) --experiment $(EXPERIMENT) export
 
-.PHONY: docker-build docker-up docker-down docker-shell docker-setup-env format lint fix-lint pre-commit test clean suggest report export-results
+# Validation targets
+PDF_DIR ?= data/pdfs
+VALIDATION_OUTPUT ?= validation_results
+BO_OUTPUT ?= bo_validation
+CHEMIST_RATINGS ?=
+N_SUGGESTIONS ?= 10
+
+validate-score:
+	@echo "Running validation scoring on PDFs..."
+	$(POETRY_RUN) python hplc_bo/run_validation.py score --pdf_dir $(PDF_DIR) --output_dir $(VALIDATION_OUTPUT) $(if $(CHEMIST_RATINGS),--chemist_ratings $(CHEMIST_RATINGS))
+
+validate-bo:
+	@echo "Running Bayesian Optimization validation..."
+	$(POETRY_RUN) python hplc_bo/run_validation.py bo --results_file $(VALIDATION_OUTPUT)/validation_results.pkl --output_dir $(BO_OUTPUT) --n_suggestions $(N_SUGGESTIONS)
+
+validate-full:
+	@echo "Running full validation workflow..."
+	$(POETRY_RUN) python hplc_bo/run_validation.py full --pdf_dir $(PDF_DIR) --score_output_dir $(VALIDATION_OUTPUT) --bo_output_dir $(BO_OUTPUT) $(if $(CHEMIST_RATINGS),--chemist_ratings $(CHEMIST_RATINGS)) --n_suggestions $(N_SUGGESTIONS)
+
+.PHONY: docker-build docker-up docker-down docker-shell docker-setup-env format lint fix-lint pre-commit test clean suggest report export-results validate-score validate-bo validate-full

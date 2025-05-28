@@ -27,3 +27,8 @@ This file tracks the development tasks for the HPLC Bayesian Optimization projec
 
 5.  **Add `pdfplumber` dependency:**
     *   Use `poetry add pdfplumber` to include the library in the project's dependencies.
+
+6.  - Ignore rows from gradient table once FlowRate changes 
+    - Ignore rows from RT table with no Area or area under 500,000
+    - Report should have columns from RT tabel
+    - Report should have compute_score inputs e.g. peak_width

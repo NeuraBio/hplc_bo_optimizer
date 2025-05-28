@@ -185,6 +185,8 @@ def compute_score_usp(
     rt_list: List[float],
     peak_widths: List[float],
     tailing_factors: List[float],
+    areas: List[float] = None,  # Optional peak areas for additional scoring
+    plate_counts: List[float] = None,  # Optional theoretical plate counts
     target_run_time: float = 10.0,  # Target ideal run time in minutes
     min_resolution: float = 1.5,  # Minimum acceptable resolution
 ) -> float:
@@ -195,6 +197,8 @@ def compute_score_usp(
         rt_list: Sorted list of retention times (minutes).
         peak_widths: Corresponding peak widths (minutes, at the same height level, e.g., 50%).
         tailing_factors: Corresponding USP tailing factors.
+        areas: Optional list of peak areas for additional scoring criteria.
+        plate_counts: Optional list of theoretical plate counts.
         target_run_time: The ideal total run time for penalty calculation.
         min_resolution: The minimum desired resolution between peaks. Peaks below this
                         will be more heavily penalized.
@@ -213,60 +217,194 @@ def compute_score_usp(
             "Input lists (rt_list, peak_widths, tailing_factors) must have the same length."
         )
 
-    # 1. Resolution between adjacent peaks (weighted e.g., 50%)
+    # Check if areas were provided
+    if areas is not None and len(areas) != num_peaks:
+        # If areas don't match peaks, ignore them
+        areas = None
+
+    # Check if plate counts were provided
+    if plate_counts is not None and len(plate_counts) != num_peaks:
+        # If plate counts don't match peaks, ignore them
+        plate_counts = None
+
+    # Initial quality assessment - check for missing data
+    missing_data_score = 0
+
+    # Count peaks with missing areas
+    if areas:
+        missing_areas = sum(1 for a in areas if a is None or a == 0)
+        if missing_areas > 0:
+            missing_data_score -= missing_areas * 5.0
+    else:
+        # Severely penalize if no areas at all
+        missing_data_score -= 25.0
+
+    # Count peaks with missing plate counts
+    if plate_counts:
+        missing_plates = sum(1 for p in plate_counts if p is None or p == 0)
+        if missing_plates > 0:
+            missing_data_score -= missing_plates * 3.0
+    else:
+        # Penalize if no plate counts at all
+        missing_data_score -= 15.0
+
+    # 1. Resolution between adjacent peaks (weighted heavily)
     resolutions = []
     for i in range(num_peaks - 1):
         rt1, rt2 = rt_list[i], rt_list[i + 1]
         w1, w2 = peak_widths[i], peak_widths[i + 1]
+
+        # Check if peak widths are suspiciously small (likely defaults)
+        if w1 < rt1 * 0.03:  # Width less than 3% of RT is suspiciously small
+            w1 = rt1 * 0.12  # Use a more conservative 12% estimate (increased from 10%)
+        if w2 < rt2 * 0.03:
+            w2 = rt2 * 0.12
+
         if w1 + w2 == 0:  # Avoid division by zero if widths are zero
             res = 0
         else:
             res = 2 * (rt2 - rt1) / (w1 + w2)
         resolutions.append(res)
 
-    # Penalize resolutions below the minimum target
+    # Penalize resolutions below the minimum target with stronger penalties
     resolution_score_component = 0
     if resolutions:
-        # Simple average, or could be more complex (e.g. geometric mean, penalizing worst)
-        # For now, let's average and add a penalty for sub-minimal resolutions
+        # Calculate average resolution
         avg_resolution = sum(resolutions) / len(resolutions)
         resolution_score_component = avg_resolution
-        # Add penalty for any resolution less than min_resolution
+
+        # Add exponentially increasing penalty for sub-minimal resolutions
         for res_val in resolutions:
             if res_val < min_resolution:
-                resolution_score_component -= (min_resolution - res_val) * 2  # Heavier penalty
+                # Exponential penalty that gets much worse as resolution decreases
+                penalty = (min_resolution - res_val) ** 2 * 5.0  # Increased from 3.0
+                resolution_score_component -= penalty
 
-    # 2. Peak symmetry/tailing factor penalty (weighted e.g., 30%)
-    # Ideal Tailing Factor (TF) is 1.0. Deviations (e.g., 0.8 < TF < 1.5 or 1.8) are penalized.
+        # Extra penalty for very poor resolution (< 1.0)
+        poor_resolutions = [r for r in resolutions if r < 1.0]
+        if poor_resolutions:
+            resolution_score_component -= len(poor_resolutions) * 8.0  # Increased from 5.0
+
+    # 2. Peak symmetry/tailing factor penalty (with stricter acceptable range)
     symmetry_penalty_component = 0
-    for tf in tailing_factors:
-        if not (0.8 <= tf <= 1.8):  # Example acceptable range, can be adjusted
-            symmetry_penalty_component -= abs(tf - 1.0) * 1.5  # Penalize deviations from 1.0
+    default_tailing_count = sum(1 for tf in tailing_factors if tf == 1.0)  # Count default values
 
-    # 3. Run time penalty (weighted e.g., 20%)
+    # If more than half the tailing factors are exactly 1.0, they're likely defaults
+    if default_tailing_count > num_peaks / 2:
+        # Apply a penalty for having mostly default values
+        symmetry_penalty_component -= 15.0  # Increased from 5.0
+
+    for tf in tailing_factors:
+        # Stricter acceptable range (0.9-1.5 instead of 0.8-1.8)
+        if not (0.9 <= tf <= 1.5):
+            # Stronger penalty (3.0 instead of 1.5)
+            symmetry_penalty_component -= abs(tf - 1.0) * 3.0
+
+    # 3. Run time penalty (less weight than before)
     actual_run_time = rt_list[-1] if rt_list else 0
-    # Penalize if run time is much longer than target, but don't overly penalize slightly longer
-    # No penalty if shorter than target.
     time_penalty_component = 0
     if actual_run_time > target_run_time:
         time_penalty_component = -(actual_run_time - target_run_time) / target_run_time
-        # This makes the penalty proportional to how much it exceeds the target.
-        # e.g., 12 min run vs 10 min target = -0.2 penalty. 20 min run = -1.0 penalty.
 
-    # Combine scores (adjust weights as needed)
-    # Weights should sum to 1 if they are percentages, or just be scaling factors.
-    w_res = 0.50
-    w_sym = 0.30
-    w_time = 0.20
+    # 4. Early elution penalty (new component with stronger penalties)
+    early_elution_penalty = 0
+    for rt in rt_list:
+        if rt < 2.0:  # Increased threshold from 1.0 to 2.0 minutes
+            # Exponential penalty that increases as RT approaches 0
+            early_elution_penalty -= (2.0 - rt) ** 2 * 3.0
+
+    # 5. Peak distribution penalty (new component)
+    distribution_penalty = 0
+    if len(rt_list) >= 3:
+        # Calculate standard deviation of retention time differences
+        rt_diffs = [rt_list[i + 1] - rt_list[i] for i in range(len(rt_list) - 1)]
+        avg_diff = sum(rt_diffs) / len(rt_diffs)
+        std_diff = (sum((d - avg_diff) ** 2 for d in rt_diffs) / len(rt_diffs)) ** 0.5
+
+        # Penalize high standard deviation (uneven peak spacing)
+        if std_diff > avg_diff * 0.5:  # If std_dev is more than 50% of average
+            distribution_penalty -= std_diff / avg_diff * 5.0  # Increased from 3.0
+
+    # 6. Area distribution penalty (if areas are available)
+    area_penalty = 0
+    if areas and any(a is not None and a > 0 for a in areas):
+        # Filter out None or zero areas
+        valid_areas = [a for a in areas if a is not None and a > 0]
+        if valid_areas:
+            # Calculate coefficient of variation of areas
+            avg_area = sum(valid_areas) / len(valid_areas)
+            if avg_area > 0:
+                std_area = (sum((a - avg_area) ** 2 for a in valid_areas) / len(valid_areas)) ** 0.5
+                cv_area = std_area / avg_area
+
+                # Penalize high CV (very uneven peak areas)
+                if cv_area > 0.8:  # Lowered threshold from 1.0 to 0.8
+                    area_penalty -= (cv_area - 0.8) * 5.0  # Increased from 3.0
+
+        # Additional penalty for having too few peaks with valid areas
+        if len(valid_areas) < num_peaks / 2:
+            area_penalty -= 10.0
+
+    # 7. Plate count assessment (if available)
+    plate_count_component = 0
+    if plate_counts and any(p is not None and p > 0 for p in plate_counts):
+        valid_plates = [p for p in plate_counts if p is not None and p > 0]
+        if valid_plates:
+            avg_plate = sum(valid_plates) / len(valid_plates)
+
+            # Reward high plate counts (good column efficiency)
+            if avg_plate > 5000:
+                plate_count_component += min(5.0, avg_plate / 5000)  # Cap at 5.0
+            elif avg_plate < 2000:
+                # Penalize very low plate counts
+                plate_count_component -= (2000 - avg_plate) / 500
+
+    # Combine scores with adjusted weights
+    w_res = 0.40  # Resolution (reduced)
+    w_sym = 0.15  # Symmetry (reduced)
+    w_time = 0.05  # Run time (reduced)
+    w_early = 0.15  # Early elution (increased)
+    w_dist = 0.10  # Peak distribution
+    w_area = 0.10  # Area distribution (increased)
+    w_plate = 0.05  # Plate count (new)
 
     final_score = (
         w_res * resolution_score_component
         + w_sym * symmetry_penalty_component
         + w_time * time_penalty_component
+        + w_early * early_elution_penalty
+        + w_dist * distribution_penalty
+        + w_area * area_penalty
+        + w_plate * plate_count_component
     )
 
-    # Ensure very bad scenarios (e.g. all peaks co-eluting, giving Rs=0) get a bad score
-    if not resolutions or max(resolutions, default=0) < 0.1:  # if max res is very low
-        final_score -= 100  # Large penalty for no real separation
+    # Additional penalties for specific bad scenarios
+
+    # 1. Too few peaks detected (< 3)
+    if num_peaks < 3:
+        final_score -= 20.0  # Increased from 10.0
+
+    # 2. No real separation (all peaks co-eluting)
+    if not resolutions or max(resolutions, default=0) < 0.5:  # if max res is very low
+        final_score -= 75.0  # Increased from 50.0
+
+    # 3. Missing data penalty
+    # If we have mostly default values, apply an additional penalty
+    default_width_count = sum(1 for i, w in enumerate(peak_widths) if w <= rt_list[i] * 0.05)
+    if default_width_count > num_peaks / 2:
+        final_score -= 20.0  # Increased from 10.0
+
+    # 4. Apply the missing data score
+    final_score += missing_data_score
+
+    # 5. Ghost peaks penalty - if many peaks have no area
+    if areas:
+        ghost_peaks = sum(1 for a in areas if a is None or a == 0)
+        if ghost_peaks > num_peaks / 3:  # If more than 1/3 of peaks have no area
+            final_score -= ghost_peaks * 5.0
+
+    # 6. Severe penalty for chromatograms with only early eluting peaks
+    if all(rt < 3.0 for rt in rt_list):
+        final_score -= 30.0
 
     return final_score
