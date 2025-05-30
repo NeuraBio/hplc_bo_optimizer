@@ -12,39 +12,19 @@ import multiprocessing
 import os
 import pickle
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from dataclasses import asdict, dataclass
-from typing import Any, Dict, List, Optional, Union
+from dataclasses import asdict
+from typing import Dict, List, Optional, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
+from hplc_bo.data_types import ValidationResult
 from hplc_bo.gradient_utils import compute_score_usp
 from hplc_bo.pdf_parser import extract_comprehensive_data, extract_rt_table_data
 
-
-@dataclass
-class ValidationResult:
-    """Class to store validation results for a single PDF."""
-
-    pdf_path: str
-    filename: str
-    rt_list: List[float]
-    peak_widths: List[float]
-    tailing_factors: List[float]
-    column_temperature: Optional[float] = None
-    flow_rate: Optional[float] = None
-    solvent_a: Optional[str] = None
-    solvent_b: Optional[str] = None
-    gradient_table: Optional[List[Dict[str, Any]]] = None
-    score: Optional[float] = None
-    chemist_rating: Optional[float] = None  # If available
-    notes: Optional[str] = None
-    # Additional RT table data as requested by chemists
-    rt_table_data: Optional[List[Dict[str, Any]]] = None  # Store complete RT table data
-    areas: Optional[List[float]] = None  # Peak areas
-    plate_counts: Optional[List[float]] = None  # Theoretical plate counts
+# ValidationResult is now imported from data_types.py
 
 
 def process_single_pdf(args) -> Union[ValidationResult, None]:
@@ -120,6 +100,7 @@ def process_single_pdf(args) -> Union[ValidationResult, None]:
             tailing_factors=tailing_factors,
             column_temperature=conditions.column_temperature,
             flow_rate=conditions.flow_rate,
+            pH=conditions.pH,  # Include pH from chromatography conditions
             solvent_a=conditions.solvent_a_name,
             solvent_b=conditions.solvent_b_name,
             gradient_table=conditions.gradient_table,
@@ -128,6 +109,9 @@ def process_single_pdf(args) -> Union[ValidationResult, None]:
             rt_table_data=rt_table_data,
             areas=areas,
             plate_counts=plate_counts,
+            injection_id=conditions.injection_id,
+            result_id=conditions.result_id,
+            sample_set_id=conditions.sample_set_id,
         )
 
         return result
@@ -141,6 +125,8 @@ def process_pdf_directory(
     pdf_dir: str,
     output_dir: str = "validation_results",
     chemist_ratings: Optional[Dict[str, float]] = None,
+    parallel: bool = True,
+    num_workers: Optional[int] = None,
 ) -> List[ValidationResult]:
     """
     Process all PDFs in a directory in parallel, compute scores, and save results.
@@ -149,6 +135,8 @@ def process_pdf_directory(
         pdf_dir: Directory containing PDF reports
         output_dir: Directory to save results
         chemist_ratings: Optional dictionary mapping filenames to chemist ratings
+        parallel: If True, process PDFs in parallel (default: True)
+        num_workers: Number of worker processes to use (default: 90% of CPU cores)
 
     Returns:
         List of ValidationResult objects
@@ -160,54 +148,135 @@ def process_pdf_directory(
     pdf_files = glob.glob(os.path.join(pdf_dir, "*.pdf"))
     print(f"Found {len(pdf_files)} PDF files in {pdf_dir}")
 
+    # Track start time for processing rate calculation
+    import time
+
+    start_time = time.time()
+
     if not pdf_files:
         return []
 
-    # Determine optimal number of workers (use 75% of available cores)
-    num_workers = max(1, int(multiprocessing.cpu_count() * 0.75))
-    print(f"Using {num_workers} CPU cores for parallel processing")
+    # Determine optimal number of workers (use 90% of available cores)
+    if num_workers is None:
+        worker_count = max(1, int(multiprocessing.cpu_count() * 0.9))
+        # Allow override with environment variable
+        if "HPLC_NUM_WORKERS" in os.environ:
+            try:
+                env_workers = int(os.environ["HPLC_NUM_WORKERS"])
+                if env_workers > 0:
+                    worker_count = env_workers
+            except ValueError:
+                pass
+    else:
+        worker_count = num_workers
+
+    if parallel:
+        print(f"Using {worker_count} CPU cores for parallel processing")
+    else:
+        print("Running in sequential mode (parallel=False)")
 
     # Prepare arguments for each PDF
     args_list = [(pdf_path, chemist_ratings) for pdf_path in pdf_files]
 
     results = []
 
-    # Process PDFs in parallel
-    with ProcessPoolExecutor(max_workers=num_workers) as executor:
-        # Submit all tasks
-        future_to_pdf = {executor.submit(process_single_pdf, args): args[0] for args in args_list}
+    if parallel:
+        # Process PDFs in parallel
+        with ProcessPoolExecutor(max_workers=worker_count) as executor:
+            # Submit all tasks
+            future_to_pdf = {
+                executor.submit(process_single_pdf, args): args[0] for args in args_list
+            }
 
-        # Process results as they complete with a progress bar
-        for _, future in enumerate(
-            tqdm(as_completed(future_to_pdf), total=len(pdf_files), desc="Processing PDFs")
-        ):
-            pdf_path = future_to_pdf[future]
+            # Process results as they complete with a progress bar
+            for _, future in enumerate(
+                tqdm(as_completed(future_to_pdf), total=len(pdf_files), desc="Processing PDFs")
+            ):
+                pdf_path = future_to_pdf[future]
+                filename = os.path.basename(pdf_path)
+
+                try:
+                    result = future.result()
+                    if result is not None:
+                        results.append(result)
+                except Exception as e:
+                    print(f"Error processing {filename}: {e}")
+    else:
+        # Process PDFs sequentially
+        for args in tqdm(args_list, desc="Processing PDFs"):
+            pdf_path = args[0]
             filename = os.path.basename(pdf_path)
-
             try:
-                result = future.result()
+                result = process_single_pdf(args)
                 if result is not None:
                     results.append(result)
             except Exception as e:
                 print(f"Error processing {filename}: {e}")
 
-    # Save results
-    save_validation_results(results, output_dir)
+    # Sort results chronologically by injection_id and result_id
+    print("Sorting validation results chronologically...")
+    # Filter out results with missing IDs
+    valid_results = [r for r in results if r.injection_id is not None and r.result_id is not None]
+    invalid_results = [r for r in results if r.injection_id is None or r.result_id is None]
 
-    return results
+    if invalid_results:
+        print(
+            f"Warning: {len(invalid_results)} PDFs had missing Injection ID or Result ID and will be placed at the end"
+        )
+
+    # Calculate processing rate
+    end_time = time.time()
+    processing_time = end_time - start_time
+    processing_rate = len(pdf_files) / processing_time if processing_time > 0 else 0
+
+    print(f"Processed {len(pdf_files)} PDFs in {processing_time:.2f} seconds")
+    print(f"Processing rate: {processing_rate:.2f} PDFs/second")
+
+    # Sort valid results by injection_id first, then by result_id
+    sorted_results = sorted(valid_results, key=lambda x: (x.injection_id, x.result_id))
+
+    # Add invalid results at the end
+    sorted_results.extend(invalid_results)
+
+    print(f"Sorted {len(sorted_results)} validation results chronologically")
+
+    # Save results sorted by score for the validation report
+    # but preserve chronological order in the returned list for BO validation
+    save_validation_results(sorted_results, output_dir, sort_by_score=True)
+
+    # Precompute vector similarity data
+    precompute_vector_similarity(sorted_results, output_dir)
+
+    return sorted_results
 
 
-def save_validation_results(results: List[ValidationResult], output_dir: str):
+def save_validation_results(
+    results: List[ValidationResult], output_dir: str, sort_by_score: bool = True
+):
     """
     Save validation results to CSV and JSON files.
 
     Args:
-        results: List of ValidationResult objects
+        results: List[ValidationResult] objects
         output_dir: Directory to save results
+        sort_by_score: If True, sort results by score (highest to lowest) for the report
+                      If False, maintain the order of the input results (e.g., chronological)
     """
+    # Sort results by score (highest to lowest) for the validation report if requested
+    if sort_by_score:
+        # Create a copy to avoid modifying the original list
+        results_to_save = sorted(
+            results, key=lambda x: x.score if x.score is not None else float("-inf"), reverse=True
+        )
+        print(
+            f"Sorted {len(results_to_save)} validation results by score (highest to lowest) for reporting"
+        )
+    else:
+        results_to_save = results
+
     # Create a DataFrame for the summary CSV
     summary_data = []
-    for result in results:
+    for result in results_to_save:
         # Calculate average values for areas and plate counts if available
         avg_area = None
         avg_plate_count = None
@@ -231,8 +300,13 @@ def save_validation_results(results: List[ValidationResult], output_dir: str):
                 "chemist_rating": result.chemist_rating,
                 "column_temperature": result.column_temperature,
                 "flow_rate": result.flow_rate,
+                "pH": result.pH,  # Include pH in the summary
                 "solvent_a": result.solvent_a,
                 "solvent_b": result.solvent_b,
+                # Include chronological ordering information
+                "injection_id": result.injection_id,
+                "result_id": result.result_id,
+                "sample_set_id": result.sample_set_id,
                 # Include additional data as requested by chemists
                 "avg_area": avg_area,
                 "avg_plate_count": avg_plate_count,
@@ -254,14 +328,108 @@ def save_validation_results(results: List[ValidationResult], output_dir: str):
     with open(json_path, "w") as f:
         # Convert dataclass objects to dictionaries
         json_data = []
-        for result in results:
+        for result in results_to_save:
             # Convert numpy arrays to lists if present
             result_dict = asdict(result)
             json_data.append(result_dict)
 
-        json.dump(json_data, f, indent=2, default=str)
+        json.dump(json_data, f, indent=2)
 
     print(f"Saved detailed results to {json_path}")
+
+    return json_path
+
+    # Always save the original results (chronological order) for BO validation
+    # This ensures that the BO validation has access to the chronologically ordered data
+    if sort_by_score and results != results_to_save:
+        pkl_path = os.path.join(output_dir, "validation_results.pkl")
+        with open(pkl_path, "wb") as f:
+            pickle.dump(results, f)
+        print(f"Saved validation results to {pkl_path} for BO validation")
+
+
+def precompute_vector_similarity(results: List[ValidationResult], output_dir: str) -> str:
+    """
+    Precompute vector similarity data for all validation results and save to a JSON file.
+
+    Args:
+        results: List of ValidationResult objects
+        output_dir: Directory to save the vector similarity cache
+
+    Returns:
+        Path to the saved vector similarity cache file
+    """
+    print("\nPrecomputing vector similarity data...")
+
+    # Import VectorSimilarityEngine here to avoid circular imports
+    from hplc_bo.vector_similarity import VectorSimilarityEngine
+
+    # Initialize the vector similarity engine with the output directory
+    similarity_engine = VectorSimilarityEngine(validation_dir=output_dir)
+
+    # Filter results to include only those with necessary parameters
+    valid_results = []
+    for result in results:
+        if (
+            result.gradient_table is not None
+            and result.flow_rate is not None
+            and result.column_temperature is not None
+            and result.score is not None
+            and result.score > -1000000000
+        ):  # Skip results with invalid scores
+            # Ensure pH is set
+            if result.pH is None:
+                result.pH = 7.0  # Use neutral pH as default
+
+            # Convert gradient table to the format expected by the vector similarity engine
+            # This is done inside the VectorSimilarityEngine class, so we don't need to do it here
+            valid_results.append(result)
+
+    # Add all valid results to the engine at once
+    similarity_engine.precompute_validation_vectors(valid_results)
+
+    # Save the precomputed vectors to the cache file
+    similarity_engine._save_cache()
+
+    print(
+        f"Precomputed vector similarity data for {len(similarity_engine.validation_results)} validation results"
+    )
+    print(f"Saved vector similarity cache to {similarity_engine.cache_file}")
+
+    # Test the similarity search functionality
+    if similarity_engine.validation_results:
+        print("\nTesting vector similarity search...")
+        # Use the parameters from the best result as a test query
+        best_result = max(results, key=lambda x: x.score if x.score is not None else float("-inf"))
+
+        if (
+            best_result.gradient_table
+            and best_result.flow_rate is not None
+            and best_result.pH is not None
+            and best_result.column_temperature is not None
+        ):
+            # Convert gradient table to the format expected by the vector similarity engine
+            test_gradient = []
+            for point in best_result.gradient_table:
+                if "time" in point and "%b" in point:
+                    test_gradient.append([float(point["time"]), float(point["%b"])])
+
+            if test_gradient:
+                test_params = {
+                    "gradient": test_gradient,
+                    "flow_rate": best_result.flow_rate,
+                    "pH": best_result.pH,
+                    "column_temp": best_result.column_temperature,
+                }
+
+                # Find similar runs
+                similar_runs = similarity_engine.find_similar_runs(test_params, top_k=3)
+
+                print("\nTop 3 similar runs to the best result:")
+                for i, (run, distance) in enumerate(similar_runs, 1):
+                    print(f"{i}. {run.filename} (Score: {run.score:.2f}, Distance: {distance:.4f})")
+
+    return similarity_engine.cache_file
 
 
 def analyze_validation_results(output_dir: str):
@@ -340,27 +508,27 @@ def analyze_validation_results(output_dir: str):
     plt.savefig(os.path.join(plots_dir, "score_vs_num_peaks.png"))
     plt.close()
 
-    # 4. Score vs. flow rate
-    if df["flow_rate"].notna().any():
-        plt.figure(figsize=(10, 6))
-        plt.scatter(df["flow_rate"], df["score"], alpha=0.7)
-        plt.xlabel("Flow Rate (mL/min)")
-        plt.ylabel("Computed Score")
-        plt.title("Score vs. Flow Rate")
-        plt.grid(True, alpha=0.3)
-        plt.savefig(os.path.join(plots_dir, "score_vs_flow_rate.png"))
-        plt.close()
+    # 4. Scatter plots of score vs. method parameters
+    for param in ["column_temperature", "flow_rate", "pH"]:
+        if param in df.columns and df[param].notna().any():
+            plt.figure(figsize=(10, 6))
+            plt.scatter(df[param], df["score"], alpha=0.7)
 
-    # 5. Score vs. column temperature
-    if df["column_temperature"].notna().any():
-        plt.figure(figsize=(10, 6))
-        plt.scatter(df["column_temperature"], df["score"], alpha=0.7)
-        plt.xlabel("Column Temperature (°C)")
-        plt.ylabel("Computed Score")
-        plt.title("Score vs. Column Temperature")
-        plt.grid(True, alpha=0.3)
-        plt.savefig(os.path.join(plots_dir, "score_vs_temperature.png"))
-        plt.close()
+            # Set appropriate labels based on parameter
+            if param == "column_temperature":
+                plt.xlabel("Column Temperature (°C)")
+            elif param == "flow_rate":
+                plt.xlabel("Flow Rate (mL/min)")
+            elif param == "pH":
+                plt.xlabel("pH")
+            else:
+                plt.xlabel(param.replace("_", " ").title())
+
+            plt.ylabel("Computed Score")
+            plt.title(f"Score vs. {param.replace('_', ' ').title()}")
+            plt.grid(True, alpha=0.3)
+            plt.savefig(os.path.join(plots_dir, f"score_vs_{param}.png"))
+            plt.close()
 
     # 6. Top and bottom scoring methods
     top_n = min(10, len(df))
@@ -552,9 +720,13 @@ def generate_html_report(output_dir: str):
                 <th>Rank</th>
                 <th>Filename</th>
                 <th>Score</th>
+                <th>Injection ID</th>
+                <th>Result ID</th>
+                <th>Sample Set ID</th>
                 <th>Chemist Rating</th>
                 <th>Num Peaks</th>
                 <th>Flow Rate</th>
+                <th>pH</th>
                 <th>Column Temp</th>
                 <th>Avg Area</th>
                 <th>Avg Plate Count</th>
@@ -585,9 +757,13 @@ def generate_html_report(output_dir: str):
                 <td>{i + 1}</td>
                 <td>{filename}</td>
                 <td>{row['score']:.2f}</td>
+                <td>{row['injection_id'] if pd.notna(row['injection_id']) else 'N/A'}</td>
+                <td>{row['result_id'] if pd.notna(row['result_id']) else 'N/A'}</td>
+                <td>{row['sample_set_id'] if pd.notna(row['sample_set_id']) else 'N/A'}</td>
                 <td>{row['chemist_rating'] if pd.notna(row['chemist_rating']) else 'N/A'}</td>
                 <td>{row['num_peaks']}</td>
                 <td>{row['flow_rate'] if pd.notna(row['flow_rate']) else 'N/A'}</td>
+                <td>{row['pH'] if pd.notna(row['pH']) else 'N/A'}</td>
                 <td>{row['column_temperature'] if pd.notna(row['column_temperature']) else 'N/A'}</td>
                 <td>{avg_area}</td>
                 <td>{avg_plate_count}</td>
@@ -595,7 +771,7 @@ def generate_html_report(output_dir: str):
                 <td><button onclick="toggleDetails('{details_id}')">Show Details</button></td>
             </tr>
             <tr id="{details_id}" style="display:none;">
-                <td colspan="11">
+                <td colspan="14">
                     <h4>Compute Score Inputs</h4>
                     <table style="width:100%; margin-bottom:10px;">
                         <tr>
@@ -646,101 +822,3 @@ def generate_html_report(output_dir: str):
 
     print(f"Generated HTML report at {html_path}")
     return html_path
-
-
-def run_validation(
-    pdf_dir: str, output_dir: str = "validation_results", chemist_ratings_file: Optional[str] = None
-):
-    """
-    Run the complete validation workflow.
-
-    Args:
-        pdf_dir: Directory containing PDF reports
-        output_dir: Directory to save results
-        chemist_ratings_file: Optional CSV file with chemist ratings
-
-    Returns:
-        Path to the generated HTML report
-    """
-    # Create output directory if it doesn't exist
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Check if PDF directory exists and is accessible
-    if not os.path.exists(pdf_dir):
-        print(
-            f"Warning: PDF directory '{pdf_dir}' does not exist or is not accessible from the container."
-        )
-        print(
-            "If you're running in Docker, make sure the PDF directory is mounted in the container."
-        )
-        print("For example, add this to your docker-compose.yml:")
-        print("    volumes:")
-        print(f"      - {pdf_dir}:{pdf_dir}")
-
-        # Create empty results files
-        with open(os.path.join(output_dir, "validation_summary.csv"), "w") as f:
-            f.write(
-                "filename,score,chemist_rating,num_peaks,column_temperature,flow_rate,solvent_a,solvent_b,has_gradient,pdf_path\n"
-            )
-
-        with open(os.path.join(output_dir, "validation_details.json"), "w") as f:
-            f.write("[]")
-
-        # Create empty pickle file for BO validation
-        with open(os.path.join(output_dir, "validation_results.pkl"), "wb") as f:
-            pickle.dump([], f)
-
-        # Generate HTML report with error message
-        html_path = generate_html_report(output_dir)
-        print(f"Created empty report at {html_path}")
-        return html_path
-
-    # Load chemist ratings if provided
-    chemist_ratings = None
-    if chemist_ratings_file and os.path.exists(chemist_ratings_file):
-        try:
-            ratings_df = pd.read_csv(chemist_ratings_file)
-            # Assuming the CSV has columns "filename" and "rating"
-            chemist_ratings = dict(zip(ratings_df["filename"], ratings_df["rating"], strict=False))
-            print(f"Loaded {len(chemist_ratings)} chemist ratings from {chemist_ratings_file}")
-        except Exception as e:
-            print(f"Error loading chemist ratings: {e}")
-
-    # Process PDFs
-    results = process_pdf_directory(pdf_dir, output_dir, chemist_ratings)
-
-    # Save results to pickle for BO validation
-    pickle_path = os.path.join(output_dir, "validation_results.pkl")
-    with open(pickle_path, "wb") as f:
-        pickle.dump(results, f)
-    print(f"Saved validation results to {pickle_path} for BO validation")
-
-    # Analyze results if we have any
-    if results:
-        analyze_validation_results(output_dir)
-
-    # Generate HTML report
-    html_path = generate_html_report(output_dir)
-
-    print(f"Validation complete. Processed {len(results)} PDFs.")
-    print(f"Results saved to {output_dir}")
-    print(f"HTML report available at {html_path}")
-
-    return html_path
-
-
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(
-        description="Validate HPLC method scoring against real-world data"
-    )
-    parser.add_argument("--pdf_dir", required=True, help="Directory containing PDF reports")
-    parser.add_argument(
-        "--output_dir", default="validation_results", help="Directory to save results"
-    )
-    parser.add_argument("--chemist_ratings", help="CSV file with chemist ratings (optional)")
-
-    args = parser.parse_args()
-
-    run_validation(args.pdf_dir, args.output_dir, args.chemist_ratings)

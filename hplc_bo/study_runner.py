@@ -4,12 +4,7 @@ import optuna
 import pandas as pd
 
 from hplc_bo.convergence import plot_convergence
-from hplc_bo.gradient_utils import (
-    TrialRecord,
-    compute_score_usp,
-    load_peak_data_from_csv,
-    penalize_gradient_zigzags,
-)
+from hplc_bo.gradient_utils import TrialRecord, compute_score_usp, load_peak_data_from_csv
 from hplc_bo.lock_manager import LockManager
 from hplc_bo.study_access import StudyAccess
 from hplc_bo.study_registry import log_study_run
@@ -42,24 +37,8 @@ class StudyRunner:
 
     def suggest(self):
         record = self.access.ask()
-        penalty = penalize_gradient_zigzags(record.bo_gradient)
-
-        if penalty > 50.0:
-            print(f"⚠️ Warning: This gradient has zigzags (penalty score: {penalty:.1f}).")
-            print(f"🧪 Suggested Trial #{record.trial_number}")
-            print(json.dumps(record.params, indent=2))
-
-            choice = input(
-                "Do you want to: [1] Continue with this gradient, [2] Mark as invalid and skip? (1/2): "
-            )
-            if choice.strip() == "2":
-                self.mark_invalid(record.trial_number, reason="gradient_zigzag")
-                print("Trial marked as invalid. Suggesting a new trial...")
-                # Recursively call suggest to get a new trial
-                return self.suggest()
-        else:
-            print(f"🧪 Suggested Trial #{record.trial_number}")
-            print(json.dumps(record.params, indent=2))
+        print(f"🧪 Suggested Trial #{record.trial_number}")
+        print(json.dumps(record.params, indent=2))
 
         log_study_run(self.client_lab, self.experiment, self.study_name, 1, "suggest")
         return record

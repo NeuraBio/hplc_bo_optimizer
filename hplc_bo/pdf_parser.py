@@ -1,9 +1,13 @@
 import math
 import re
+import warnings
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 import pdfplumber
+
+# Suppress the annoying CropBox warnings from pdfplumber
+warnings.filterwarnings("ignore", message="CropBox missing from /Page, defaulting to MediaBox")
 
 # Expected headers for the main results table (RT table)
 # Adjust these based on the exact headers in your PDF
@@ -43,6 +47,9 @@ COLUMN_TEMP_KEYWORDS = [
 SOLVENT_A_KEYWORDS = ["Solvent A", "Mobile Phase A", "Buffer A", "Eluent A"]
 SOLVENT_B_KEYWORDS = ["Solvent B", "Mobile Phase B", "Buffer B", "Eluent B"]
 
+# Keywords for finding pH values
+pH_KEYWORDS = ["pH", "Buffer pH", "Mobile Phase pH", "Eluent pH"]
+
 
 @dataclass
 class ChromatographyConditions:
@@ -53,6 +60,10 @@ class ChromatographyConditions:
     solvent_b_name: str = None
     gradient_table: list = None  # List of dicts with time, %A, %B, etc.
     flow_rate: float = None  # in mL/min
+    pH: float = None  # pH of the mobile phase
+    injection_id: int = None
+    result_id: int = None
+    sample_set_id: int = None
 
 
 def extract_rt_table_data(pdf_path: str, verbose: bool = True) -> Optional[List[Dict[str, Any]]]:
@@ -339,6 +350,60 @@ def extract_usp_score_data(
     return rt_list, peak_widths, tailing_factors
 
 
+def extract_run_ids(
+    pdf_path: str, verbose: bool = True
+) -> Tuple[Optional[int], Optional[int], Optional[int]]:
+    """
+    Extract Injection ID, Result ID, and Sample Set ID from a PDF report.
+
+    Args:
+        pdf_path: Path to the PDF file
+        verbose: Whether to print detailed progress messages
+
+    Returns:
+        Tuple of (injection_id, result_id, sample_set_id)
+    """
+    injection_id = None
+    result_id = None
+    sample_set_id = None
+
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            # Extract text from the first page only, as IDs should be at the top
+            if len(pdf.pages) > 0:
+                text = pdf.pages[0].extract_text()
+                if text:
+                    # Extract Injection ID
+                    injection_id_match = re.search(r"Injection ID\s+(\d+)", text)
+                    if injection_id_match:
+                        injection_id = int(injection_id_match.group(1))
+
+                    # Extract Result ID
+                    result_id_match = re.search(r"Result ID\s+(\d+)", text)
+                    if result_id_match:
+                        result_id = int(result_id_match.group(1))
+
+                    # Extract Sample Set ID
+                    sample_set_match = re.search(r"Sample Set Id\s+(\d+)", text)
+                    if sample_set_match:
+                        sample_set_id = int(sample_set_match.group(1))
+
+                    if verbose and (
+                        injection_id is not None
+                        or result_id is not None
+                        or sample_set_id is not None
+                    ):
+                        print(
+                            f"Extracted IDs - Injection: {injection_id}, Result: {result_id}, Sample Set: {sample_set_id}"
+                        )
+
+    except Exception as e:
+        if verbose:
+            print(f"Error extracting run IDs from {pdf_path}: {e}")
+
+    return injection_id, result_id, sample_set_id
+
+
 def extract_chromatography_conditions(
     pdf_path: str, verbose: bool = True
 ) -> ChromatographyConditions:
@@ -353,6 +418,12 @@ def extract_chromatography_conditions(
         ChromatographyConditions object with extracted data
     """
     conditions = ChromatographyConditions()
+
+    # Extract run IDs
+    injection_id, result_id, sample_set_id = extract_run_ids(pdf_path, verbose)
+    conditions.injection_id = injection_id
+    conditions.result_id = result_id
+    conditions.sample_set_id = sample_set_id
 
     try:
         with pdfplumber.open(pdf_path) as pdf:
@@ -423,13 +494,40 @@ def extract_chromatography_conditions(
                     if verbose:
                         print(f"Found Solvent A: Name {conditions.solvent_a_name}")
 
-                solvent_b_matches = re.findall(
-                    r"[Ss]olvent [Bb]:?\s*[Nn]ame\s*(.+?)\s*(?:[Ss]olvent|$)", text
-                )
-                if solvent_b_matches:
-                    conditions.solvent_b_name = solvent_b_matches[0].strip()
-                    if verbose:
-                        print(f"Found Solvent B: Name {conditions.solvent_b_name}")
+                # Look for solvent B name
+                for keyword in SOLVENT_B_KEYWORDS:
+                    solvent_b_pattern = (
+                        f"{keyword}[\s:]+([\w\s\d%\/\-\.]+)"  # e.g., "Solvent B: Acetonitrile"
+                    )
+                    solvent_b_matches = re.findall(solvent_b_pattern, text)
+                    if solvent_b_matches:
+                        conditions.solvent_b_name = solvent_b_matches[0].strip()
+                        if verbose:
+                            print(f"Found solvent B: {conditions.solvent_b_name}")
+                        break
+
+                # Look for pH value - try multiple patterns
+                pH_patterns = [
+                    r"pH[\s:]*([\d\.]+)",  # pH: 7.0
+                    r"Buffer pH[\s:]*([\d\.]+)",  # Buffer pH: 7.0
+                    r"Mobile Phase pH[\s:]*([\d\.]+)",  # Mobile Phase pH: 7.0
+                    r"Eluent pH[\s:]*([\d\.]+)",  # Eluent pH: 7.0
+                    r"pH[\s:]*(\d+\.\d+)",  # pH: 7.0 (more specific decimal format)
+                    r"pH[\s:]*(\d+)",  # pH: 7 (integer format)
+                    r"at pH[\s:]*(\d+\.\d+)",  # at pH 7.0
+                    r"at pH[\s:]*(\d+)",  # at pH 7
+                ]
+
+                for pattern in pH_patterns:
+                    pH_matches = re.findall(pattern, text)
+                    if pH_matches:
+                        try:
+                            conditions.pH = float(pH_matches[0])
+                            if verbose:
+                                print(f"Found pH value: {conditions.pH}")
+                            break
+                        except (ValueError, TypeError):
+                            pass
 
                 # Look for gradient table
                 # First try to extract tables from the page
@@ -573,62 +671,3 @@ def extract_comprehensive_data(
         print("Recalculated peak widths using plate count/height data")
 
     return rt_list, peak_widths, tailing_factors, conditions
-
-
-if __name__ == "__main__":
-    # Example usage (replace with an actual PDF path for testing)
-    sample_pdf_path = "/Users/umeshdangat/code/github/hplc_bo_optimizer/AI_4_2603.pdf"
-
-    print(f"Attempting to parse: {sample_pdf_path}")
-
-    # Extract comprehensive data
-    print("\n=== Extracting Comprehensive Data ===")
-    rt_list, peak_widths, tailing_factors, conditions = extract_comprehensive_data(sample_pdf_path)
-
-    # Display the results
-    print("\n=== Results ===")
-    print(f"Found {len(rt_list)} peaks")
-
-    print("\nPeak Data:")
-    for i in range(min(len(rt_list), 5)):  # Show first 5 peaks
-        print(
-            f"Peak {i + 1}: RT={rt_list[i]:.2f} min, Width={peak_widths[i]:.4f} min, Tailing={tailing_factors[i]:.2f}"
-        )
-
-    print("\nChromatography Conditions:")
-    print(f"Column Temperature: {conditions.column_temperature}°C")
-    print(f"Flow Rate: {conditions.flow_rate} mL/min")
-    print(f"Solvent A: {conditions.solvent_a_name}")
-    print(f"Solvent B: {conditions.solvent_b_name}")
-
-    if conditions.gradient_table:
-        print("\nGradient Table:")
-        print(f"{'Time (min)':<10} {'Flow (mL/min)':<15} {'%A':<10} {'%B':<10}")
-        print("-" * 45)
-        for point in conditions.gradient_table[:5]:  # Show first 5 gradient points
-            print(
-                f"{point['time']:<10.1f} {point.get('flow_rate', '-'):<15} {point.get('%A', '-'):<10.1f} {point.get('%B', '-'):<10.1f}"
-            )
-
-    # Also show the raw RT table data for reference
-    rt_data = extract_rt_table_data(sample_pdf_path)
-    if rt_data:
-        print("\nRaw RT Table Data (first 2 rows):")
-        for row_idx, row_data in enumerate(rt_data[:2]):
-            print(f"Row {row_idx + 1}: {row_data}")
-    else:
-        print("\nRT Table not found or error in parsing.")
-
-    # Show how to use this data with compute_score_usp
-    from hplc_bo.gradient_utils import compute_score_usp
-
-    score = compute_score_usp(rt_list, peak_widths, tailing_factors)
-    print(f"\nComputed USP score: {score:.2f}")
-    print("This score can be used to evaluate and optimize HPLC methods.")
-    print("Higher scores indicate better chromatographic performance.")
-    print("\nThe extracted data can be used to:")
-    print("1. Evaluate current method performance")
-    print("2. Compare different methods")
-    print("3. Feed into Bayesian optimization for method development")
-    print("4. Generate reports and visualizations")
-    print("\nAll of this is now possible directly from the PDF report!")

@@ -115,14 +115,18 @@ def expand_gradient(
 
 
 def penalize_gradient_zigzags(gradient: List[Tuple[float, float]]) -> float:
-    percents = [b for _, b in gradient]
-    penalty = 0.0
-    for i in range(len(percents) - 1):
-        if percents[i + 1] < percents[i]:
-            delta = percents[i] - percents[i + 1]
-            weight = 2.0 if i < 3 else 0.5
-            penalty += delta * weight
-    return penalty
+    """Placeholder function for backward compatibility. Always returns 0.
+
+    Zigzag penalties have been removed based on analysis of real-world HPLC methods,
+    which showed that non-monotonic gradients are often beneficial for specific separations.
+
+    Args:
+        gradient: List of (time, %B) tuples representing the gradient profile
+
+    Returns:
+        Always returns 0.0 (no penalty)
+    """
+    return 0.0
 
 
 def load_peak_data_from_csv(file_path: str) -> Tuple[List[float], List[float], List[float]]:

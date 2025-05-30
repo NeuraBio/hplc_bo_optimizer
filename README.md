@@ -136,36 +136,81 @@ make docker-up
 make suggest CLIENT=Pfizer EXPERIMENT=DegradantA
 make report TRIAL_ID=0 RT_FILE=results/rt.csv
 make export-results CLIENT=Pfizer EXPERIMENT=DegradantA
-```
 
----
-
-## 🐳 Development Environment Setup
-
-This project uses Docker and Poetry for a reproducible development environment. Follow these steps to set up your development environment:
-
-### Initial Setup
+This project uses Docker for development to ensure consistent environments:
 
 ```bash
-# 1. Build the Docker image
-make docker-build
-# or: docker compose build hplc-dev
+# 1. Build the development container
+docker compose build hplc-dev
 
 # 2. Start the container
-make docker-up
-# or: docker compose up -d hplc-dev
+docker compose up -d hplc-dev
 
-# 3. Install dependencies (with special handling for cryptography)
+# 3. Install dependencies inside the container
+docker compose exec hplc-dev bash -c "cd /app && poetry install --with dev"
+
+# Or use the Makefile shortcut
 make docker-setup-env
 
 # 4. Configure Git for the mounted repository (one-time setup)
 docker compose exec hplc-dev git config --global --add safe.directory /app
-
-# 5. Install Git hooks to run pre-commit in Docker
-./scripts/install-git-hooks.sh
 ```
 
-### Daily Development Workflow
+## 🔄 Unified Workflow
+
+We've integrated validation, simulation, and human-in-the-loop trials into a cohesive workflow using the new `hplc_optimize.py` script:
+
+### 1. Validate Historical Data
+
+Process historical PDF reports to extract data and compute scores:
+
+```bash
+python hplc_optimize.py --client_lab YourLab --experiment HPLC-1 validate --pdf_dir validation_pdfs
+```
+
+This will:
+- Process all PDFs in the directory
+- Extract chromatography data (retention times, peak widths, etc.)
+- Compute scores using the scoring function
+- Generate visualizations and HTML reports
+- Save validation results for later use
+
+### 2. Simulate BO Performance
+
+Simulate how Bayesian Optimization would have performed on historical data:
+
+```bash
+python hplc_optimize.py --client_lab YourLab --experiment HPLC-1 simulate --n_trials 40
+```
+
+This will:
+- Simulate BO suggesting parameters sequentially
+- Match suggestions to closest historical runs
+- Analyze convergence and efficiency compared to manual experimentation
+- Generate visualizations and HTML reports
+
+### 3. Run Human-in-the-Loop Trials
+
+Get suggestions for new experiments and report results:
+
+```bash
+# Get a suggestion for the next trial
+python hplc_optimize.py --client_lab YourLab --experiment HPLC-1 suggest
+
+# Report results after running the experiment
+python hplc_optimize.py --client_lab YourLab --experiment HPLC-1 report --trial_id 1 --rt_file results/rt_data.csv
+
+# Export all results to CSV and generate plots
+python hplc_optimize.py --client_lab YourLab --experiment HPLC-1 export
+```
+
+This workflow allows you to:
+- Get BO-suggested parameters for new experiments
+- Run the experiments in the lab
+- Report results back to the system
+- Continuously improve suggestions based on feedback
+
+### Development Workflow
 
 ```bash
 # Start the container if not running
@@ -196,17 +241,34 @@ docker compose exec hplc-dev bash -c "PIP_NO_BINARY=cryptography CRYPTOGRAPHY_DO
 ## 📊 Architecture Overview
 
 ```
-hplc_bo/
-├── run_trial.py          # CLI entrypoint
-├── config.py             # Param search space
-├── optimizer.py          # Param suggestion logic
-├── param_types.py        # TypedDict for params
-├── gradient_utils.py     # Scoring, CSV I/O
-├── study_access.py       # Safe Optuna interaction
-├── study_runner.py       # CLI orchestrator
-├── lock_manager.py       # Locking
-├── study_registry.py     # Run registry
+/
+├── hplc_optimize.py      # Unified CLI entrypoint
+├── run_bo_simulation.py   # Script to run BO simulation
+├── hplc_bo/
+    ├── workflow.py         # Integrated workflow manager
+    ├── validation.py       # Historical data validation
+    ├── validation_bo.py    # BO validation on historical data
+    ├── bo_simulation.py    # BO simulation with historical matching
+    ├── run_trial.py        # Legacy CLI entrypoint
+    ├── config.py           # Param search space
+    ├── optimizer.py        # Param suggestion logic
+    ├── param_types.py      # TypedDict for params
+    ├── gradient_utils.py   # Scoring, CSV I/O
+    ├── study_access.py     # Safe Optuna interaction
+    ├── study_runner.py     # Study lifecycle management
+    ├── lock_manager.py     # Locking
+    ├── study_registry.py   # Run registry
 ```
+
+### Key Components
+
+- **workflow.py**: New unified interface for the entire HPLC optimization process
+- **validation.py**: Processes historical PDF reports and computes scores
+- **validation_bo.py**: Analyzes BO performance on historical data
+- **bo_simulation.py**: Simulates BO suggestions and matches to historical runs
+- **study_runner.py**: Manages Optuna studies for human-in-the-loop trials
+- **optimizer.py**: Core parameter suggestion logic using Optuna
+- **gradient_utils.py**: Handles gradient profiles and scoring functions
 
 ---
 
