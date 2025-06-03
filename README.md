@@ -156,6 +156,37 @@ make docker-setup-env
 docker compose exec hplc-dev git config --global --add safe.directory /app
 ```
 
+## 📊 Streamlit Web Application
+
+The HPLC Optimizer includes a Streamlit web application that provides a user-friendly interface for the entire optimization workflow. This makes it easier for lab chemists to use the tool without needing to run command-line operations.
+
+### Starting the Streamlit App
+
+```bash
+# Start the Streamlit app inside Docker
+make streamlit-app
+```
+
+The app will be available at http://localhost:8501
+
+### Features
+
+The Streamlit app includes the following features:
+
+- **Validation**: Upload PDF reports and validate the scoring function
+- **Simulation**: Run Bayesian Optimization simulations on historical data
+- **Suggestion**: Get parameter suggestions for the next HPLC run
+- **Reporting**: Upload chromatogram results and report them back to the optimizer
+- **Status**: View the current status of the optimization process
+- **Advanced**: Configure optimization parameters and settings
+
+### User Interface
+
+The app is designed with two user personas in mind:
+
+1. **Lab Chemists**: Focus on the core workflow (validation, suggestion, reporting)
+2. **Power Users**: Access to advanced configuration and analysis tools
+
 ## 🔄 Unified Workflow
 
 We've integrated validation, simulation, and human-in-the-loop trials into a cohesive workflow using the new `hplc_optimize.py` script:

@@ -19,19 +19,19 @@ def main():
         epilog="""
 Examples:
   # Validate historical data from PDF reports
-  python hplc_optimize.py --client_lab NeuraBio --experiment HPLC-5 validate --pdf_dir validation_pdfs
+  python hplc_optimize.py --client_lab NuraxsDemo --experiment HPLC-5 validate --pdf_dir validation_pdfs
 
   # Simulate BO performance using validation results
-  python hplc_optimize.py --client_lab NeuraBio --experiment HPLC-5 simulate --n_trials 40
+  python hplc_optimize.py --client_lab NuraxsDemo --experiment HPLC-5 simulate --n_trials 40
 
   # Get a suggestion for the next trial
-  python hplc_optimize.py --client_lab NeuraBio --experiment HPLC-5 suggest
+  python hplc_optimize.py --client_lab NuraxsDemo --experiment HPLC-5 suggest
 
   # Report results for a trial
-  python hplc_optimize.py --client_lab NeuraBio --experiment HPLC-5 report --trial_id 1 --rt_file results/rt_data.csv
+  python hplc_optimize.py --client_lab NuraxsDemo --experiment HPLC-5 report --trial_id 1 --rt_file results/rt_data.csv
 
   # Export all trial results
-  python hplc_optimize.py --client_lab NeuraBio --experiment HPLC-5 export
+  python hplc_optimize.py --client_lab NuraxsDemo --experiment HPLC-5 export
         """,
     )
 

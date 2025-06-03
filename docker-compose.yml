@@ -10,8 +10,16 @@ services:
     working_dir: /app
     environment:
       - PYTHONPATH=/app
-    command: sleep infinity
+    # Command is now defined in Dockerfile.dev
     platform: linux/amd64  # Optional: force x86_64 for M1/arm64 hosts
+    ports:
+      - "8501:8501"  # Expose Streamlit port
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     deploy:
       resources:
         limits:
