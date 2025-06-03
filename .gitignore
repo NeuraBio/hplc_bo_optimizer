@@ -64,3 +64,4 @@ poetry.toml
 data/
 hplc_optimization/
 validation_results_ordered_updated/
+logs/

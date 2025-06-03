@@ -7,7 +7,9 @@ import streamlit as st
 
 # Import components
 from app.components.home import render_home_view
+from app.components.reporting import render_reporting_view
 from app.components.simulation import render_simulation_view
+from app.components.suggestion import render_suggestion_view
 from app.components.validation import render_validation_view
 
 # Import services
@@ -88,11 +90,31 @@ def main():
         # Navigation options
         selected_view = st.radio(
             "Select View",
-            options=["home", "validate", "simulate"],
+            options=["home", "validate", "simulate", "suggest", "report"],
             format_func=lambda x: (
-                "Home" if x == "home" else ("Validation" if x == "validate" else "Simulation")
+                "Home"
+                if x == "home"
+                else (
+                    "Validation"
+                    if x == "validate"
+                    else (
+                        "Simulation"
+                        if x == "simulate"
+                        else ("Suggestion" if x == "suggest" else "Reporting")
+                    )
+                )
             ),
-            index=0 if current_view == "home" else (1 if current_view == "validate" else 2),
+            index=(
+                0
+                if current_view == "home"
+                else (
+                    1
+                    if current_view == "validate"
+                    else (
+                        2 if current_view == "simulate" else (3 if current_view == "suggest" else 4)
+                    )
+                )
+            ),
         )
 
         # Store selected view in session state if changed
@@ -123,9 +145,36 @@ def main():
         set_session_value("output_dir", output_dir)
 
     # Display global process status indicator
-    active_processes = get_session_value("processes", [])
-    active_processes = [p for p in active_processes if p.get("status") == "running"]
+    # This is critical for maintaining process visibility across tab navigation
+    # Get processes from session state (used by active_processes below)
+    _ = get_session_value("processes", {})
 
+    # Get active processes using the get_active_processes utility function
+    from app.utils.session import get_active_processes, get_process
+
+    active_processes = get_active_processes()
+
+    # Add a persistent process tracker to session state if not present
+    if "active_process_tracker" not in st.session_state:
+        st.session_state.active_process_tracker = {}
+
+    # Update the tracker with current active processes
+    for process in active_processes:
+        process_id = process.get("id")
+        if process_id:
+            st.session_state.active_process_tracker[process_id] = process
+
+    # Remove completed processes from tracker
+    process_ids_to_remove = []
+    for process_id in st.session_state.active_process_tracker:
+        if process_id not in [p.get("id") for p in active_processes]:
+            process_ids_to_remove.append(process_id)
+
+    for process_id in process_ids_to_remove:
+        if process_id in st.session_state.active_process_tracker:
+            del st.session_state.active_process_tracker[process_id]
+
+    # Display active processes in sidebar
     if active_processes:
         st.sidebar.divider()
         st.sidebar.subheader("Running Processes")
@@ -135,9 +184,16 @@ def main():
             name = process.get("name")
             description = process.get("description")
             progress = process.get("progress", 0.0)
-            # status and start_time are available in the process dict if needed later
 
-            with st.sidebar.expander(f"{name}: {progress:.0%}", expanded=True):
+            # Get the latest process info to ensure we have current progress
+            latest_process_info = get_process(process_id) if process_id else None
+            if latest_process_info:
+                progress = latest_process_info.get("progress", progress)
+
+            # Format progress percentage
+            progress_pct = int(progress * 100)
+
+            with st.sidebar.expander(f"{name}: {progress_pct}%", expanded=True):
                 st.progress(progress)
                 st.caption(description)
                 if st.button(f"Go to {name}", key=f"goto_{process_id}"):
@@ -168,6 +224,12 @@ def main():
         elif current_view == "simulate":
             logger.info("Rendering simulation view")
             render_simulation_view()
+        elif current_view == "suggest":
+            logger.info("Rendering suggestion view")
+            render_suggestion_view()
+        elif current_view == "report":
+            logger.info("Rendering reporting view")
+            render_reporting_view()
         else:
             logger.error(f"Unknown view: {current_view}")
             st.error(f"Unknown view: {current_view}")
